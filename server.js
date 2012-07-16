@@ -27,7 +27,6 @@ module.exports = function(options){
       if(!l.file) l.file = '/unknown.log';
       if(!l.time) l.time = Date.now();
       l.now = Date.now();
-      l.line = line;
       l.ip = ip;
       l.port = port;
 
