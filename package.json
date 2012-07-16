@@ -2,7 +2,7 @@
   "author": "Ryan Day <soldair@gmail.com>",
   "name": "tailreceiver",
   "description": "recieves data as newline delimited json {file:,line:,time} over tcp and commits it to log files.",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "preferGlobal":true,
   "bin":{
     "tailreceiver":"./bin/tailreceiver.js"

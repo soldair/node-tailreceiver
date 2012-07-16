@@ -8,7 +8,7 @@ to send data to this server feel free to use the npm package forwardho ( https:/
 
 # example 
 
-installed globally you get the tailreceiver if you put options are take from options or the most local config.json
+installed globally you get the tailreceiver if you put options are take from options or the most local tailreceiver.json
  
 ```sh
 $> tailreceiver 
