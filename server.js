@@ -103,7 +103,7 @@ function writeLine(l,openStreams,dir){
     var hash = crypto.createHash('sha1');
     hash.update(l.file);
     var sha = hash.digest('hex');
-    o.lname = dir+(sha+'_'+path.basename(l.file).replace(/^[.a-z0-9_-]+/gi,'_'));
+    o.lname = dir+(sha+'_'+path.basename(l.file).replace(/[^.a-z0-9_-]+/gi,'_'));
     o.ws = fs.createWriteStream(o.lname,{ flags: 'a+'});
     o.started = Date.now();
   }
