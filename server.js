@@ -24,7 +24,7 @@ module.exports = function(options){
       var l = jsonParse(line);
       if(!l) return;
 
-      if(!l.file) l.file = 'unknown.log';
+      if(!l.file) l.file = '/unknown.log';
       if(!l.time) l.time = Date.now();
       l.now = Date.now();
       l.line = line;
