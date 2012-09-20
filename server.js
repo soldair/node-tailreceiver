@@ -154,7 +154,7 @@ module.exports = function(options){
   });
 
   //make the log file directory
-  fs.exists(dir,function(exists){
+  _exists(dir,function(exists){
     if(exists) return;
     fs.mkdir(dir,function(err,data){
       if(err) process.exit('could not make log dir! ',dir,' ',err);
@@ -213,3 +213,7 @@ function writeLines(lines,openStreams,dir){
   //bench.stop('write lines');
 }
 
+function _exists(p,cb){
+  if(fs.exists) fs.exists(p,cb);
+  else require('path').exists(p,cb);
+}
