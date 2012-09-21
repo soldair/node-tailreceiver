@@ -5,6 +5,7 @@
   "version": "0.0.5",
   "preferGlobal":true,
   "repository":"git://github.com/soldair/node-forwardho.git",
+  "mian":"server.js",
   "bin":{
     "tailreceiver":"./bin/tailreceiver.js"
   },
@@ -16,6 +17,7 @@
     "yunofast":"~0.0.1"
   },
   "optionalDependencies": {},
+  "repository":"git://github.com/soldair/node-tailreceiver.git",
   "engines": {
     "node": "*"
   }
