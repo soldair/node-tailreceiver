@@ -109,8 +109,9 @@ module.exports = function(options){
 
       server.emit('line',l);
 
-      if(!files[l.file]) {
+      if(files[l.file] === undefined) {
         newFiles.push(l.file);
+        files[l.file] = false;
       } else if(files[l.file] && !files[l.file].added) {
         var lname = files[l.file].lname;
         if(!addingToRotator[lname]) {
@@ -200,6 +201,7 @@ module.exports = function(options){
   });
 
   server.destroy = function(cb){
+
     if(destroyed) return;
     destroyed = true;
 
@@ -217,10 +219,12 @@ module.exports = function(options){
 
     if(!closed){
       c++;
-      server.close(function(){
+      // 0.6 close doesnt call a callback.
+      server.once('close',function(){
         c--;
         if(!c) cb();   
-      });
+      })
+      server.close();
     }
 
     if(Object.keys(z.activeLogs).length){

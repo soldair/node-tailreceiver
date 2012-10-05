@@ -37,7 +37,6 @@ test("does rotate tail",function(t){
     // compare to data written
 
     tr.destroy(function(){
-
       var expectedData = '';
       lines.forEach(function(v,k){
         expectedData += JSON.stringify(v)+"\n";    
