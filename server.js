@@ -7,7 +7,6 @@ var net = require('net')
 , crypto = require('crypto')
 , zlib = require('zlib')
 , rotator = require('rotator')
-//, bench = require('yunofast')();
 ;
 
 
@@ -17,11 +16,26 @@ module.exports = function(options){
   var rotateConfig = {gzip:typeof options.rotateGzip == 'undefined'?true:options.rotateGzip};
 
   if(options.rotateInterval) rotateConfig.interval = options.rotateInterval;
+  if(options.rotateSize) rotateConfig.size = options.rotateSize;
+
+  if(options.rotatePollInterval) rotateConfig.pollInterval = options.rotatePollInterval;
+  else rotateConfig.pollInterval = options.rotateInterval/10;
+  rotateConfig.pollInterval = Math.abs(rotateConfig.pollInterval);
+  if(rotateConfig.pollInterval < 1) rotateConfig.pollInterval = 1;
+
+  if(options.rotateStatInterval) rotateConfig.statInterval = options.rotateStatInterval;
+
   var tot = rotator(rotateConfig);
 
   //port
-  var tcp = options.port || options.tcp || 5140
-  , server
+  var tcp;
+  if(options.port === 0 || options.tcp === 0){
+    tcp = 0;//any port
+  } else {
+    tcp = options.port || options.tcp || 5140
+  }
+
+  var server
   , dir = options.dir || process.cwd()+'/logs/'
   , lineEmitter = new EventEmitter()
   , files = {}
@@ -31,23 +45,22 @@ module.exports = function(options){
   server = net.createServer(function(con){
     // right now any client can keep sending data to lbuf
     // with no newline and use up all the memory.
+    //
+    var z = this;
+    //keep a handle to active connections so it can be destroyed.
+    this._sockets.push(con);
+    
+    if(this.paused) {
+      con.pause();
+    }
 
-    var lbuf;
+    var lbuf = '';
     con.on('data',function(buf){
-
-      //bench.start('on data buf');
-
-      var s = buf.toString('utf8');
-
-      if(lbuf && lbuf.length) {
-        s = lbuf.toString('utf8')+s;
-      }
-
-      //bench.stop('on data buf');
-
-      //bench.start('on data split');
+      
+      s = buf.toString('utf8');
 
       var lines = s.trim().split("\n");
+
       if(s.lastIndexOf("\n") == s.length-1) {
         //got the whole line!
         lbuf = ''
@@ -55,32 +68,32 @@ module.exports = function(options){
         lbuf = lines.pop();
       }
 
-      //bench.stop('on data split');
-
-      //bench.start('on data emit');
-
       lineEmitter.emit('lines',lines,con.remoteAddress,con.remotePort);
 
-      //bench.stop('on data emit');
     });
 
     con.on('end',function(){
+      if(lbuf.length){
+        lineEmitter.emit('lines',[lbuf],con.remoteAddress,con.remotePort);
+      }
       delete lbuf;
+      z._sockets.splice(z._sockets.indexOf(con),1);
     });
   });
 
-  lineEmitter.on('lines',function(lines,ip,port){
+  server._sockets = [];
 
-    //bench.start('whole line');
+  var addingToRotator = {};
+  lineEmitter.on('lines',function(inlines,ip,port){
 
-    var lines = jsonParse('['+lines.join(',')+']')
+    var lines = jsonParse('['+inlines.join(',')+']')
     ,l;
 
     if(!lines) {
-      //bench.stop('whole line');
       return;
     }
 
+    var newFiles = [];
     for(i=0;i<lines.length;++i){
       l = lines[i];
       if(!l.file) l.file = '/unknown.log';
@@ -96,62 +109,142 @@ module.exports = function(options){
 
       server.emit('line',l);
 
-      if(l.lname && !tot.logs[l.lname]) {
-        tot.addFile(l.lname,function(err,data){
-          if(err) {
-            console.log('error adding ',l.lname,'to rotator',err);
-          } else {
-            console.log('added file ',l.lname,' to rotator');
-          }
-        });
+      if(!files[l.file]) {
+        newFiles.push(l.file);
+      } else if(files[l.file] && !files[l.file].added) {
+        var lname = files[l.file].lname;
+        if(!addingToRotator[lname]) {
+          addingToRotator[lname] = 1;
+
+          tot.addFile(lname,function(err,data){
+
+            if(err) { 
+              console.error('error adding ',lname,'to rotator',err);
+            } else {
+              files[l.file].added = 1;
+            }
+
+            delete addingToRotator[lname];
+          });
+        }
       }
+
     }
 
     if(!lines.length) {
-      //bench.stop('whole line');
       return;
     }
 
-    writeLines(lines,files,dir);
+    server._writeLines(lines,files,dir);
 
-    //bench.stop('whole line');
-    
+
+    // tack on to side effect of writing lines
+    if(newFiles.length) {
+      newFiles.forEach(function(log){
+          server.emit('log',files[log].lname);
+      });
+    }   
   });
 
+
   tot.on('rotate',function(rs,file,data){
-    var o = files[file];
-    if(!o) return;
+    var fileKey = server._findFileFromLname(file,files);
+    var o = files[fileKey];
+    if(!o) {
+      return;
+    }
     // set rotate line buffer so we dont miss any events.
     // if it takes a long time to get a close event we will
     if(!rotateBuffer[file]) rotateBuffer[file] = [];
     // have rotator wait for active stream to close
     tot.rotateAfterClose(file,o.ws);
     // end stream. i have to do this because rotator wont know how to do it for me.
-    o.ws.end();
+    server.pause();
+
+    if(!server.activeLogs[fileKey]){
+      o.ws.end();
+      o.ws = fs.createWriteStream(o.lname,{flags:"a+"});
+    } else {
+      server.once('drain',function(){
+        o.ws.end();
+        o.ws = fs.createWriteStream(o.lname,{flags:"a+"});
+      });
+    }
   });
 
-  var afterRotate =  function(file){ 
+  var afterRotate =  function(file,rotateName,data){
+
+    server.resume(); 
+    if(rotateName) server.emit('rotated',file,rotateName);
     var lines = rotateBuffer[file];
     delete rotateBuffer[file];
-    delete files[file];
     
     while(lines && lines.length) writeLine(lines.shift(),files,dir);
   };
 
   tot.on('rotated',afterRotate);
-  tot.on('rotate-error',function(err,file){
-    console.log('error rotating file! ',err,file);
+  tot.on('rotate-error',function(err,file,data){
     // keep it going.
-    afterRotate(file);
+    afterRotate(file,null,data);
   });
 
   server.listen(tcp,function(){
-    console.log('server listening for \\n delimited JSON over tcp on '+tcp);
+    console.log('server listening for \\n delimited JSON over tcp on '+server.address().port);
   });
 
+  var closed = false;
+  var destroyed = false;
   server.on('close',function(){
-    tot.stop();   
+    closed = true;
+    server.destroy();
   });
+
+  server.destroy = function(cb){
+    if(destroyed) return;
+    destroyed = true;
+
+    var z = this;
+    //destroy all of the connections!
+    this._sockets.forEach(function(con){
+      con.end();
+    });
+
+    var c = 1;
+    tot.stop(function(){
+      c--;
+      if(!c) cb();
+    });
+
+    if(!closed){
+      c++;
+      server.close(function(){
+        c--;
+        if(!c) cb();   
+      });
+    }
+
+    if(Object.keys(z.activeLogs).length){
+      c++;
+      server.once('drain',function(){
+        c--;
+        if(!c) cb();
+      });
+    }
+  }
+
+  server.pause = function(){
+    this.paused = true;
+    this._sockets.forEach(function(con){
+        con.pause();
+    });
+  }
+
+  server.resume = function(){
+    this.paused = false;
+    this._sockets.forEach(function(con){
+      con.resume();  
+    })
+  }
 
   //make the log file directory
   _exists(dir,function(exists){
@@ -160,13 +253,69 @@ module.exports = function(options){
       if(err) process.exit('could not make log dir! ',dir,' ',err);
     });
   });
+  
+
+  server._findFileFromLname = function(lname,files){
+    var ret;
+    Object.keys(files).forEach(function(file){
+      var o = files[file];
+      if(o && o.lname == lname){
+        ret = file;
+        return false;
+      }
+    });
+    return ret;
+  };
+
+  server._getFileObject = function(file,openStreams,dir) {
+    var o = openStreams[file];
+    if(!openStreams[file]) {
+      o = openStreams[file] = {};
+      var hash = crypto.createHash('sha1');
+      hash.update(file);
+      var sha = hash.digest('hex');
+      o.lname = dir+(path.basename(file).replace(/[^.a-z0-9_-]+/gi,'_')+'.'+sha);
+      o.ws = fs.createWriteStream(o.lname,{ flags: 'a+'});
+      o.started = Date.now();
+    }
+
+    o.updated = Date.now();
+    return o;
+  };
+
+  server.activeLogs = {};
+  server._writeLines = function(lines,openStreams,dir){
+    var z = this
+    ,files = {}
+    ;
+
+
+    lines.forEach(function(l){
+        if(!files[l.file]) files[l.file] = "";
+        files[l.file] += JSON.stringify(l)+"\n"
+    });
+
+    var fileKeys = Object.keys(files);
+    cnt = fileKeys.length;
+    fileKeys.forEach(function(file){  
+      var o = z._getFileObject(file,openStreams,dir);
+      cnt++;
+      if(!z.activeLogs[file]) z.activeLogs[file] = 0;
+
+      z.activeLogs[file]++;
+      o.ws.write(files[file],function(err,bytes){
+        z.activeLogs[file]--;
+        if(!z.activeLogs[file]) {
+          delete z.activeLogs[file];
+          z.emit('drain',file);
+        }
+      });
+    });
+  }
 
   return server;
 }
 
-//setInterval(function(){
-//    console.log(bench.report());
-//},10000);
 
 function jsonParse(json){
   if(!json || !json.length || !(json+'').trim().length) return undefined;
@@ -180,38 +329,7 @@ function jsonParse(json){
 }
 
 
-function getFileObject(file,openStreams,dir) {
-  //console.log('writeLine')
-  var o = openStreams[file];
-  if(!openStreams[file]) {
-    o = openStreams[file] = {};
-    var hash = crypto.createHash('sha1');
-    hash.update(file);
-    var sha = hash.digest('hex');
-    o.lname = dir+(path.basename(file).replace(/[^.a-z0-9_-]+/gi,'_')+'.'+sha);
-    o.ws = fs.createWriteStream(o.lname,{ flags: 'a+'});
-    o.started = Date.now();
-  }
 
-  o.updated = Date.now();
-  return o;
-}
-
-function writeLines(lines,openStreams,dir){
-  //bench.start('write lines');
-
-  var files = {};
-  lines.forEach(function(l){
-      if(!files[l.file]) files[l.file] = "";
-      files[l.file] += JSON.stringify(l)+"\n"
-  });
-
-  Object.keys(files).forEach(function(file){  
-    var o = getFileObject(file,openStreams,dir);
-    o.ws.write(files[file]);
-  });
-  //bench.stop('write lines');
-}
 
 function _exists(p,cb){
   if(fs.exists) fs.exists(p,cb);

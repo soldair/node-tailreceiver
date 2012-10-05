@@ -31,6 +31,8 @@ tailreceiver(config)
   - config
     - rotateInterval 
       - miliseconds how often files should be rotated. files are prefixed with YYYMMDD(-NUM) num is optional which is the number rotation that day
+    - rotateSize
+      - size in bytes that files will be to trigger rotation.
     - port
       - the port to listen for log connections on
     - dir

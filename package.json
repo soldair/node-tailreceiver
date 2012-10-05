@@ -2,7 +2,7 @@
   "author": "Ryan Day <soldair@gmail.com>",
   "name": "tailreceiver",
   "description": "recieves data as newline delimited json {file:,line:,time} over tcp and commits it to log files.",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "preferGlobal":true,
   "repository":"git://github.com/soldair/node-forwardho.git",
   "main":"server.js",
@@ -11,10 +11,11 @@
   },
   "dependencies": {
     "confuse":"~0.0.1",
-    "rotator":"~0.0.2"
+    "rotator":"~0.0.4"
   },
   "devDependencies": {
-    "yunofast":"~0.0.1"
+    "yunofast":"~0.0.1",
+    "tap":"*"
   },
   "optionalDependencies": {},
   "repository":"git://github.com/soldair/node-tailreceiver.git",
