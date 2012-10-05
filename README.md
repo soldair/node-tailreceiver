@@ -1,3 +1,6 @@
+
+[![Build Status](https://secure.travis-ci.org/soldair/node-tailreceiver.png)](http://travis-ci.org/soldair/node-tailreceiver)
+
 # tailreceiver
 
 Get log data as json over tcp from forwardho servers. commit the data to log files unique to name and host. rotate and gzip files based on configured interval. Watch line events to publish data to stats or an event bus.

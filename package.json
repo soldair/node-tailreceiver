@@ -17,6 +17,9 @@
     "yunofast":"~0.0.1",
     "tap":"*"
   },
+  "scripts":{
+    "test":"tap test/*.js"
+  },
   "optionalDependencies": {},
   "repository":"git://github.com/soldair/node-tailreceiver.git",
   "engines": {
