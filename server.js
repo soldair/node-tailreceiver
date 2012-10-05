@@ -59,7 +59,7 @@ module.exports = function(options){
       
       s = buf.toString('utf8');
 
-      var lines = s.trim().split("\n");
+      var lines = (lbuf+s).split("\n");
 
       if(s.lastIndexOf("\n") == s.length-1) {
         //got the whole line!
@@ -86,8 +86,14 @@ module.exports = function(options){
   var addingToRotator = {};
   lineEmitter.on('lines',function(inlines,ip,port){
 
-    var lines = jsonParse('['+inlines.join(',')+']')
-    ,l;
+    var lines = []
+    ,l
+    ;
+
+    inlines.forEach(function(line){
+      var l = jsonParse(line);
+      if(l) lines.push(l);
+    });
 
     if(!lines) {
       return;
