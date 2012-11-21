@@ -170,7 +170,7 @@ module.exports = function(options){
     // have rotator wait for active stream to close
     tot.rotateAfterClose(file,o.ws);
     // end stream. i have to do this because rotator wont know how to do it for me.
-    server.pause();
+    server._pause();
 
     if(!server.activeLogs[fileKey]){
       o.ws.end();
@@ -185,7 +185,7 @@ module.exports = function(options){
 
   var afterRotate =  function(file,rotateName,data){
 
-    server.resume(); 
+    server._resume(); 
     if(rotateName) server.emit('rotated',file,rotateName);
     var lines = rotateBuffer[file];
     delete rotateBuffer[file];
@@ -247,7 +247,14 @@ module.exports = function(options){
     }
   }
 
+  // user pause beats server internal unpause.
+  server.userpaused = false;
   server.pause = function(){
+    this.userpaused = Date.now();
+    this._pause();
+  }
+
+  server._pause = function(){
     this.paused = Date.now();;
     this._sockets.forEach(function(con){
         con.pause();
@@ -255,6 +262,12 @@ module.exports = function(options){
   }
 
   server.resume = function(){
+    this.userpaused = false;
+    this._resume();
+  }
+
+  server._resume = function(){
+    if(this.userpaused) return false;
     if(this.paused) {
       this.emit('pausestats',{elapsed:Date.now()-this.paused});
     }
@@ -335,14 +348,14 @@ module.exports = function(options){
       if(!success) {
         if(!pauseFreakoutLogs[file]) {
           pauseFreakoutLogs[file] = Date.now();
-	  server.pause();
-	  o.ws.once('drain',function(){
+	        server._pause();
+	        o.ws.once('drain',function(){
             delete pauseFreakoutLogs[file];
             var len = Object.keys(pauseFreakoutLogs).length;
             if(!len) {
-              server.resume();
+              server._resume();
             }
-	  });
+	        });
         }
       }
 
