@@ -41,7 +41,8 @@ module.exports = function(options){
   , files = {}
   , rotateBuffer = {}
   ;
-  
+ 
+ 
   server = net.createServer(function(con){
     // right now any client can keep sending data to lbuf
     // with no newline and use up all the memory.
@@ -57,7 +58,7 @@ module.exports = function(options){
     var lbuf = '';
     con.on('data',function(buf){
       
-      s = buf.toString('utf8');
+      var s = buf.toString('utf8');
 
       var lines = (lbuf+s).split("\n");
 
@@ -76,12 +77,15 @@ module.exports = function(options){
       if(lbuf.length){
         lineEmitter.emit('lines',[lbuf],con.remoteAddress,con.remotePort);
       }
-      delete lbuf;
+
+      lbuf = undefined;
       z._sockets.splice(z._sockets.indexOf(con),1);
     });
+
   });
 
   server._sockets = [];
+
 
   var addingToRotator = {};
   lineEmitter.on('lines',function(inlines,ip,port){
@@ -95,7 +99,7 @@ module.exports = function(options){
       if(l) lines.push(l);
     });
 
-    if(!lines) {
+    if(!lines.length) {
       return;
     }
 
@@ -166,7 +170,7 @@ module.exports = function(options){
     // have rotator wait for active stream to close
     tot.rotateAfterClose(file,o.ws);
     // end stream. i have to do this because rotator wont know how to do it for me.
-    server.pause();
+    server._pause();
 
     if(!server.activeLogs[fileKey]){
       o.ws.end();
@@ -181,7 +185,7 @@ module.exports = function(options){
 
   var afterRotate =  function(file,rotateName,data){
 
-    server.resume(); 
+    server._resume(); 
     if(rotateName) server.emit('rotated',file,rotateName);
     var lines = rotateBuffer[file];
     delete rotateBuffer[file];
@@ -203,6 +207,7 @@ module.exports = function(options){
   var destroyed = false;
   server.on('close',function(){
     closed = true;
+    clearInterval(server._statsInterval);
     server.destroy();
   });
 
@@ -242,14 +247,31 @@ module.exports = function(options){
     }
   }
 
+  // user pause beats server internal unpause.
+  server.userpaused = false;
   server.pause = function(){
-    this.paused = true;
+    this.userpaused = Date.now();
+    this._pause();
+  }
+
+  server._pause = function(){
+    this.paused = Date.now();;
     this._sockets.forEach(function(con){
         con.pause();
     });
   }
 
   server.resume = function(){
+    this.userpaused = false;
+    this._resume();
+  }
+
+  server._resume = function(){
+    if(this.userpaused) return false;
+    if(this.paused) {
+      this.emit('pausestats',{elapsed:Date.now()-this.paused});
+    }
+
     this.paused = false;
     this._sockets.forEach(function(con){
       con.resume();  
@@ -293,6 +315,8 @@ module.exports = function(options){
     return o;
   };
 
+  var pauseFreakoutLogs = {};
+
   server.activeLogs = {};
   server._writeLines = function(lines,openStreams,dir){
     var z = this
@@ -313,15 +337,51 @@ module.exports = function(options){
       if(!z.activeLogs[file]) z.activeLogs[file] = 0;
 
       z.activeLogs[file]++;
-      o.ws.write(files[file],function(err,bytes){
+      var success = o.ws.write(files[file],function(err,bytes){
         z.activeLogs[file]--;
         if(!z.activeLogs[file]) {
           delete z.activeLogs[file];
           z.emit('drain',file);
         }
       });
+
+      if(!success) {
+        if(!pauseFreakoutLogs[file]) {
+          pauseFreakoutLogs[file] = Date.now();
+	        server._pause();
+	        o.ws.once('drain',function(){
+            delete pauseFreakoutLogs[file];
+            var len = Object.keys(pauseFreakoutLogs).length;
+            if(!len) {
+              server._resume();
+            }
+	        });
+        }
+      }
+
     });
   }
+
+  server._statsInterval = setInterval(function(){
+
+    var keys = Object.keys(pauseFreakoutLogs);
+    if(keys.length) {
+      server.emit("filebusy",{files:pauseFreakoutLogs,now:Date.now()});
+    }
+
+    Object.keys(files).forEach(function(k){
+
+      var o = files[k];
+      if(o.time) {
+        var b = o.ws.bytesWritten;
+        var t = Date.now()-o.time;
+        server.emit('filestats',{file:k,bytesPerSecond:(b/t)*1000});
+      }
+      o.time = Date.now();
+      o.bytesStart = o.ws.bytesWritten;
+
+    });
+  },20000);
 
   return server;
 }
