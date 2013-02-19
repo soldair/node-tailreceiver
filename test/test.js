@@ -4,6 +4,7 @@ var test = require('tap').test
 , fs  = require('fs')
 , server = require(path.join(__dirname,'..','server.js')) 
 , zlib = require('zlib')
+, crypto = require('crypto')
 ;
 
 test("does rotate tail",function(t){
@@ -15,7 +16,7 @@ test("does rotate tail",function(t){
   ,logs = []
   ;
 
-  var tr = server({port:0,rotateInterval:10});
+  var tr = server({port:0,rotateInterval:10,secret:"bob"});
 
   var line = 0;
   tr.on('line',function(obj){
@@ -94,7 +95,11 @@ test("does rotate tail",function(t){
       var i = 0
       ,line = {time:1348232408912,line:"",file:now+'.log'}
       ;
-      
+      var t = Date.now();
+      var h = crypto.createHash('md5');
+      h.update(t+"bob");
+      con.write(JSON.stringify({time:t,hash:h.digest('hex')})+"\n");
+
       interval = setInterval(function(){
         line.line = "line "+i;
         var w = JSON.stringify(line)+"\n";

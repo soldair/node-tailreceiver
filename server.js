@@ -17,12 +17,13 @@ module.exports = function(options){
 
   if(options.rotateInterval) rotateConfig.interval = options.rotateInterval;
   if(options.rotateSize) rotateConfig.size = options.rotateSize;
+  if(options.secret) 
 
   if(options.rotatePollInterval) rotateConfig.pollInterval = options.rotatePollInterval;
   else rotateConfig.pollInterval = options.rotateInterval/10;
   rotateConfig.pollInterval = Math.abs(rotateConfig.pollInterval);
   if(rotateConfig.pollInterval < 1) rotateConfig.pollInterval = 1;
-
+  
   if(options.rotateStatInterval) rotateConfig.statInterval = options.rotateStatInterval;
 
   var tot = rotator(rotateConfig);
@@ -56,11 +57,11 @@ module.exports = function(options){
     }
 
     var lbuf = '';
+    
     con.on('data',function(buf){
-      
       var s = buf.toString('utf8');
-
       var lines = (lbuf+s).split("\n");
+
 
       if(s.lastIndexOf("\n") == s.length-1) {
         //got the whole line!
@@ -68,7 +69,24 @@ module.exports = function(options){
       } else {
         lbuf = lines.pop();
       }
-
+      
+      if(options.secret){
+        if(!con.authenticated){
+          //if the first data event is an incomplete line we will have to wait for the end of it.
+          if(!lines.length) return;
+          if(options.secret && !server.checkSecret(options.secret,lines[0])){
+           con.write('{"error":"access denied."}\n');
+           con.end();
+           return;
+          } else {
+            lines.shift();
+            con.authenticated =  true;
+          }
+        }      
+      } else {
+        con.authenticated = true;
+      } 
+      
       lineEmitter.emit('lines',lines,con.remoteAddress,con.remotePort);
 
     });
@@ -86,6 +104,21 @@ module.exports = function(options){
 
   server._sockets = [];
 
+  server.checkSecret = function(secret,auth){
+    try{
+      auth = JSON.parse(auth)||{};
+    } catch(e){
+      return false;
+    }
+    // allow up to half hour stale timestamp on auth secret request.
+    if(auth.time < Date.now()-1000*60*30) {
+      return false;
+    } 
+    var hash = crypto.createHash('md5');
+    hash.update(auth.time+''+secret);
+    hash = hash.digest('hex');
+    return auth.hash === hash;
+  }
 
   var addingToRotator = {};
   lineEmitter.on('lines',function(inlines,ip,port){
